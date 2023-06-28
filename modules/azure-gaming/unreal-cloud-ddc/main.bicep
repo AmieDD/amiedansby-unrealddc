@@ -9,8 +9,8 @@ param location string
 @description('Secondary Deployment Locations')
 param secondaryLocations array = []
 
-@description('New or Existing Kubernentes Resources')
-@allowed([ 'new', 'existing' ])
+@description('New or Existing Kubernentes Resources, none to skip.')
+@allowed([ 'new', 'existing', 'none' ])
 param newOrExistingKubernetes string = 'new'
 
 @description('Name of Kubernetes Resource')
@@ -227,6 +227,9 @@ var regionCodes = {
   chinanorth3: 'cnn3'
 }
 
+var enableKubernetes = (newOrExistingKubernetes != 'none')
+var newOrExistingPublicIpEffective = enableKubernetes ? newOrExistingPublicIp : 'none'
+
 //  Resources
 resource partnercenter 'Microsoft.Resources/deployments@2022-09-01' = {
   name: 'pid-7837dd60-4ba8-419a-a26f-237bbe170773-partnercenter'
@@ -240,7 +243,7 @@ resource partnercenter 'Microsoft.Resources/deployments@2022-09-01' = {
   }
 }
 
-var enableTrafficManager = newOrExistingTrafficManager != 'none'
+var enableTrafficManager = enableKubernetes && (newOrExistingTrafficManager != 'none')
 
 // Traffic Manager Profile
 
@@ -255,7 +258,7 @@ module trafficManager 'modules/network/trafficManagerProfiles.bicep' = if (enabl
 
 var trafficManagerNameForEndpoints = enableTrafficManager ? trafficManager.outputs.name : ''
 
-var enableContainerInsights = (newOrExistingWorkspaceForContainerInsights != 'none')
+var enableContainerInsights = (newOrExistingWorkspaceForContainerInsights != 'none') && enableKubernetes
 
 // Log Analytics Workspace
 
@@ -291,15 +294,15 @@ var locationSpecs = [for (location, index) in allLocations: {
 
 module allRegionalResources 'modules/resources.bicep' = [for (location, index) in allLocations: if (epicEULA) {
   name: guid(keyVaultName, publicIpName, cosmosDBName, storageAccountName, location)
-  dependsOn: [
+  dependsOn: enableTrafficManager ? [
     trafficManager
-  ]
+  ] : []
   params: {
     location: location
     regionCode: regionCodes[location]
     newOrExistingKubernetes: newOrExistingKubernetes
     newOrExistingKeyVault: newOrExistingKeyVault
-    newOrExistingPublicIp: newOrExistingPublicIp
+    newOrExistingPublicIp: newOrExistingPublicIpEffective
     newOrExistingStorageAccount: newOrExistingStorageAccount
     kubernetesParams: {
       name: '${aksName}-${locationSpecs[index].regionCode}'
@@ -328,7 +331,7 @@ module allRegionalResources 'modules/resources.bicep' = [for (location, index) i
   }
 }]
 
-module kvCert 'br/public:deployment-scripts/create-kv-certificate:3.4.2' = [for spec in locationSpecs: if (assignRole && enableCert) {
+module kvCert 'br/public:deployment-scripts/create-kv-certificate:3.4.2' = [for spec in locationSpecs: if (assignRole && enableCert && enableKubernetes) {
   name: 'akvCert-${spec.location}'
   dependsOn: [
     allRegionalResources
@@ -384,7 +387,7 @@ module cassandraKeys 'modules/keyvault/vaults/secrets.bicep' = [for spec in loca
   }
 }]
 
-module setuplocations 'modules/ddc-setup-locations.bicep' = if (assignRole && epicEULA) {
+module setuplocations 'modules/ddc-setup-locations.bicep' = if (enableKubernetes && assignRole && epicEULA) {
   name: 'setup-ddc-${location}'
   dependsOn: [
     cassandraKeys
@@ -424,18 +427,22 @@ module setuplocations 'modules/ddc-setup-locations.bicep' = if (assignRole && ep
   }
 }
 
+var trafficManagerFqdn = enableTrafficManager ? trafficManager.outputs.fqdn : ''
+
 // Add CNAME record for traffic manager only after all regional resources are created
-module dnsRecords 'modules/network/dnsZoneCnameRecord.bicep' = if (useDnsZone) {
+module dnsRecords 'modules/network/dnsZoneCnameRecord.bicep' = if (useDnsZone && enableTrafficManager) {
   name: 'dns-${uniqueString(dnsZoneName, resourceGroup().id, deployment().name)}'
   scope: resourceGroup(dnsZoneResourceGroupName)
-  dependsOn: [
+  dependsOn: enableTrafficManager ? [
     trafficManager
+    allRegionalResources
+  ] : [
     allRegionalResources
   ]
   params: {
     dnsZoneName: dnsZoneName
     recordName: shortHostname
-    targetFQDN: trafficManager.outputs.fqdn
+    targetFQDN: trafficManagerFqdn
   }
 }
 

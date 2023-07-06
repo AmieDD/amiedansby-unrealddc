@@ -46,7 +46,7 @@ module helmInstallLocalProvisioner 'local-pv-provisioner.bicep' = if (enableLoca
   name: 'helmInstallProvisioner-${uniqueString(aksName, location, resourceGroup().name)}'
 }
 
-var helmCharts = union(
+var helmChartsPreReqs = union(
   enableWorkloadIdentity ? [ helmInstallWorkloadID.outputs.helmChart ] : [],
   enableIngress ? [ helmInstallIngress.outputs.helmChart ] : [],
   enableSecretStore ? [ helmInstallSecretStore.outputs.helmChart ] : [],
@@ -54,12 +54,42 @@ var helmCharts = union(
   additionalCharts
 )
 
-module combo 'helmChartInstall.bicep' = {
-  name: 'helmInstallCombo-${uniqueString(aksName, location, resourceGroup().name)}'
+module prereqs 'helmChartInstall.bicep' = {
+  name: 'helmInstallPrereqs-${uniqueString(aksName, location, resourceGroup().name)}'
   params: {
     aksName: aksName
     location: location
-    helmCharts: helmCharts
+    helmCharts: helmChartsPreReqs
+    useExistingManagedIdentity: useExistingManagedIdentity
+    managedIdentityName: managedIdentityName
+    existingManagedIdentitySubId: existingManagedIdentitySubId
+    existingManagedIdentityResourceGroupName: existingManagedIdentityResourceGroupName
+    isApp: isApp
+  }
+}
+
+// Ingress needs some time to start up. Otherwise the next helm install will fail
+module delay '../delay.bicep' = {
+  name: 'delay-${uniqueString(aksName, location, resourceGroup().name)}'
+  dependsOn: [
+    prereqs
+  ]
+  params: {
+    location: location
+    sleepName: 'sleep-${uniqueString(aksName, location, resourceGroup().name)}'
+    sleepSeconds: 30
+  }
+}
+
+module combo 'helmChartInstall.bicep' = {
+  name: 'helmInstallAdditional-${uniqueString(aksName, location, resourceGroup().name)}'
+  dependsOn: [
+    delay
+  ]
+  params: {
+    aksName: aksName
+    location: location
+    helmCharts: additionalCharts
     useExistingManagedIdentity: useExistingManagedIdentity
     managedIdentityName: managedIdentityName
     existingManagedIdentitySubId: existingManagedIdentitySubId

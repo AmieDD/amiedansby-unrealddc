@@ -1,6 +1,6 @@
 param aksName string
 param location string
-param staticIP string = ''
+param publicIpAddress string = ''
 param additionalCharts array = []
 
 param enableWorkloadIdentity bool = true
@@ -39,7 +39,7 @@ resource publicIP 'Microsoft.Network/publicIPAddresses@2021-03-01' existing = {
 
 module helmInstallIngress 'nginx-ingress.bicep' = if (enableIngress) {
   name: 'helmInstallIngress-${uniqueString(aksName, location, resourceGroup().name)}'
-  params: { staticIP: publicIP.properties.ipAddress }
+  params: { staticIP: publicIpAddress }
 }
 
 module helmInstallLocalProvisioner 'local-pv-provisioner.bicep' = if (enableLocalProvisioner) {

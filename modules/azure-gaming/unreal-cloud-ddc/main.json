@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.20.4.51522",
-      "templateHash": "5854598994552399421"
+      "templateHash": "10216199133443891965"
     },
     "name": "Unreal Cloud DDC",
     "description": "Unreal Cloud DDC for Unreal Engine game development.",
@@ -110,6 +110,12 @@
       "type": "int",
       "metadata": {
         "description": "Address range for a vnet in a given region"
+      }
+    },
+    "vnetVmSubnetAddrRange": {
+      "type": "int",
+      "metadata": {
+        "description": "Subnet address range for use by K8S VMs"
       }
     },
     "vnetVmSubnetName": {
@@ -882,6 +888,9 @@
           "vmSubnetName": {
             "value": "[parameters('vnetVmSubnetName')]"
           },
+          "subnetAddrRange": {
+            "value": "[parameters('vnetVmSubnetAddrRange')]"
+          },
           "loadBalancerSubnetName": {
             "value": "[parameters('vnetLoadBalancerSubnetName')]"
           },
@@ -896,7 +905,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.20.4.51522",
-              "templateHash": "11667977244542673243"
+              "templateHash": "14912515349718137392"
             }
           },
           "parameters": {
@@ -913,8 +922,7 @@
               "type": "int"
             },
             "subnetAddrRange": {
-              "type": "int",
-              "defaultValue": 24
+              "type": "int"
             },
             "vmSubnetName": {
               "type": "string"

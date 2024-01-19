@@ -4,7 +4,7 @@ param publicIpAddress string = ''
 param additionalCharts array = []
 
 param enableWorkloadIdentity bool = true
-#disable-next-line secure-secrets-in-params 
+#disable-next-line secure-secrets-in-params
 param enableSecretStore bool = true
 param enableIngress bool = true
 param enableLocalProvisioner bool = true
@@ -21,47 +21,47 @@ param existingManagedIdentitySubId string = subscription().subscriptionId
 @description('For an existing Managed Identity, the Resource Group it is located in')
 param existingManagedIdentityResourceGroupName string = resourceGroup().name
 
-@description('Set to false to deploy from as an ARM template for debugging') 
+@description('Set to false to deploy from as an ARM template for debugging')
 param isApp bool = true
 
-module helmInstallWorkloadID 'workload-id.bicep' = if(enableWorkloadIdentity) { 
+module helmInstallWorkloadID 'workload-id.bicep' = if (enableWorkloadIdentity) {
   name: 'helmInstallWorkloadID-${uniqueString(aksName, location, resourceGroup().name)}'
   params: {
     azureTenantID: azureTenantID
   }
 }
 
-module helmInstallSecretStore 'csi-secret-store.bicep' = if(enableSecretStore) { name: 'helmInstallSecretStore-${uniqueString(aksName, location, resourceGroup().name)}' }
+module helmInstallSecretStore 'csi-secret-store.bicep' = if (enableSecretStore) { name: 'helmInstallSecretStore-${uniqueString(aksName, location, resourceGroup().name)}' }
 
-module helmInstallIngress 'nginx-ingress.bicep' = if(enableIngress) {
+module helmInstallIngress 'nginx-ingress.bicep' = if (enableIngress) {
   name: 'helmInstallIngress-${uniqueString(aksName, location, resourceGroup().name)}'
   params: { staticIP: publicIpAddress }
 }
 
-module helmInstallLocalProvisioner 'local-pv-provisioner.bicep' = if(enableLocalProvisioner) {
+module helmInstallLocalProvisioner 'local-pv-provisioner.bicep' = if (enableLocalProvisioner) {
   name: 'helmInstallProvisioner-${uniqueString(aksName, location, resourceGroup().name)}'
 }
 
 var helmChartsPreReqs = union(
-  enableWorkloadIdentity ? [helmInstallWorkloadID.outputs.helmChart] : [], 
-  enableIngress ? [helmInstallIngress.outputs.helmChart] : [],
-  enableSecretStore ? [helmInstallSecretStore.outputs.helmChart] : [],
-  enableLocalProvisioner ? [helmInstallLocalProvisioner.outputs.helmChart] : []
-  )
+  enableWorkloadIdentity ? [ helmInstallWorkloadID.outputs.helmChart ] : [],
+  enableIngress ? [ helmInstallIngress.outputs.helmChart ] : [],
+  enableSecretStore ? [ helmInstallSecretStore.outputs.helmChart ] : [],
+  enableLocalProvisioner ? [ helmInstallLocalProvisioner.outputs.helmChart ] : []
+)
 
-  module prereqs 'helmChartInstall.bicep' = {
-    name: 'helmInstallPrereqs-${uniqueString(aksName, location, resourceGroup().name)}'
-    params: {
-      aksName: aksName
-      location: location
-      helmCharts: helmChartsPreReqs
-      useExistingManagedIdentity: useExistingManagedIdentity
-      managedIdentityName: managedIdentityName
-      existingManagedIdentitySubId: existingManagedIdentitySubId
-      existingManagedIdentityResourceGroupName: existingManagedIdentityResourceGroupName
-      isApp: isApp
-    }
+module prereqs 'helmChartInstall.bicep' = {
+  name: 'helmInstallPrereqs-${uniqueString(aksName, location, resourceGroup().name)}'
+  params: {
+    aksName: aksName
+    location: location
+    helmCharts: helmChartsPreReqs
+    useExistingManagedIdentity: useExistingManagedIdentity
+    managedIdentityName: managedIdentityName
+    existingManagedIdentitySubId: existingManagedIdentitySubId
+    existingManagedIdentityResourceGroupName: existingManagedIdentityResourceGroupName
+    isApp: isApp
   }
+}
 
 // Ingress needs some time to start up. Otherwise the next helm install will fail
 module delay '../delay.bicep' = {

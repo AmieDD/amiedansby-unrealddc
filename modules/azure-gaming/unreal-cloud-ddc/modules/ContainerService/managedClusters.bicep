@@ -3,7 +3,7 @@ param location string
 param name string = 'ucddc-storage-k8-cluster'
 param agentPoolCount int = 3
 param agentPoolName string = 'k8agent'
-param vmSize string = 'Standard_L16s_v2'
+param vmSize string = 'Standard_L16as_v3'
 param nodeLabels string = 'defaultLabel'
 param assignRole bool = false
 param dnsPrefix string = 'k8-${take(uniqueString(name), 5)}'
@@ -63,12 +63,12 @@ var agentPoolProfileBase = {
 }
 
 var subnetProperties = vnetSubnetId != '' ? {
-  vnetSubnetID : vnetSubnetId
+  vnetSubnetID: vnetSubnetId
 } : {}
 
 var agentPoolProfile = union(agentPoolProfileBase, subnetProperties)
 
-resource aksCluster 'Microsoft.ContainerService/managedClusters@2023-02-01' = if (newOrExisting == 'new') {
+resource aksCluster 'Microsoft.ContainerService/managedClusters@2023-07-02-preview' = if (newOrExisting == 'new') {
   name: take(name, 80)
   location: location
   identity: {
@@ -115,7 +115,6 @@ resource federatedId 'Microsoft.ManagedIdentity/userAssignedIdentities/federated
     subject: subject
   }
 }
-
 
 @description('This is the built-in Network Contributor role. See https://docs.microsoft.com/azure/role-based-access-control/built-in-roles#contributor')
 resource networkContributorRoleDefinition 'Microsoft.Authorization/roleDefinitions@2018-01-01-preview' existing = {

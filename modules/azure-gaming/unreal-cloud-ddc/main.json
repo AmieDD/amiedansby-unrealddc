@@ -4,12 +4,12 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.20.4.51522",
-      "templateHash": "10216199133443891965"
+      "version": "0.23.1.45101",
+      "templateHash": "11736312342705517313"
     },
     "name": "Unreal Cloud DDC",
     "description": "Unreal Cloud DDC for Unreal Engine game development.",
-    "owner": "dciborow"
+    "owner": "amiedansby"
   },
   "parameters": {
     "location": {
@@ -74,7 +74,7 @@
     },
     "vmSize": {
       "type": "string",
-      "defaultValue": "Standard_L16s_v2",
+      "defaultValue": "Standard_L16as_v3",
       "metadata": {
         "description": "Virtual Machine Skew for Kubernetes"
       }
@@ -423,14 +423,14 @@
     },
     "helmName": {
       "type": "string",
-      "defaultValue": "myhordetest",
+      "defaultValue": "helminstalltest",
       "metadata": {
         "description": "Name of the Helm release"
       }
     },
     "helmNamespace": {
       "type": "string",
-      "defaultValue": "horde-tests",
+      "defaultValue": "default",
       "metadata": {
         "description": "Namespace of the Helm release"
       }
@@ -642,8 +642,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.20.4.51522",
-              "templateHash": "9963494728343196933"
+              "version": "0.23.1.45101",
+              "templateHash": "7902149255170456455"
             }
           },
           "parameters": {
@@ -754,8 +754,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.20.4.51522",
-              "templateHash": "6007120194379601496"
+              "version": "0.23.1.45101",
+              "templateHash": "8627038477207028200"
             }
           },
           "parameters": {
@@ -1367,8 +1367,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.20.4.51522",
-              "templateHash": "9419018135375634108"
+              "version": "0.23.1.45101",
+              "templateHash": "1303706838638407783"
             }
           },
           "parameters": {
@@ -1598,8 +1598,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.20.4.51522",
-                      "templateHash": "10431837443980725396"
+                      "version": "0.23.1.45101",
+                      "templateHash": "13923451823694559743"
                     }
                   },
                   "parameters": {
@@ -1623,7 +1623,7 @@
                     },
                     "vmSize": {
                       "type": "string",
-                      "defaultValue": "Standard_L16s_v2"
+                      "defaultValue": "Standard_L16as_v3"
                     },
                     "nodeLabels": {
                       "type": "string",
@@ -1638,7 +1638,8 @@
                       "defaultValue": "[format('k8-{0}', take(uniqueString(parameters('name')), 5))]"
                     },
                     "kubernetesVersion": {
-                      "type": "string"
+                      "type": "string",
+                      "defaultValue": "1.26.10"
                     },
                     "availabilityZones": {
                       "type": "array",
@@ -1716,7 +1717,7 @@
                     {
                       "condition": "[equals(parameters('newOrExisting'), 'new')]",
                       "type": "Microsoft.ContainerService/managedClusters",
-                      "apiVersion": "2023-02-01",
+                      "apiVersion": "2023-07-02-preview",
                       "name": "[take(parameters('name'), 80)]",
                       "location": "[parameters('location')]",
                       "identity": {
@@ -1750,8 +1751,11 @@
                         "addonProfiles": "[variables('addonProfiles')]"
                       },
                       "dependsOn": [
-                        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('clusterIdentityName'))]"
-                      ]
+                        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('clusterUserName'))]"
+                      ],
+                      "metadata": {
+                        "description": "AKS Managed Cluster"
+                      }
                     },
                     {
                       "condition": "[and(equals(parameters('newOrExisting'), 'new'), not(equals(parameters('subject'), '')))]",
@@ -1762,7 +1766,7 @@
                         "audiences": [
                           "api://AzureADTokenExchange"
                         ],
-                        "issuer": "[reference(resourceId('Microsoft.ContainerService/managedClusters', take(parameters('name'), 80)), '2023-02-01').oidcIssuerProfile.issuerURL]",
+                        "issuer": "[reference(resourceId('Microsoft.ContainerService/managedClusters', take(parameters('name'), 80)), '2023-07-02-preview').oidcIssuerProfile.issuerURL]",
                         "subject": "[parameters('subject')]"
                       },
                       "dependsOn": [
@@ -1788,7 +1792,7 @@
                   "outputs": {
                     "nodeResourceGroup": {
                       "type": "string",
-                      "value": "[if(equals(parameters('newOrExisting'), 'new'), reference(resourceId('Microsoft.ContainerService/managedClusters', take(parameters('name'), 80)), '2023-02-01').nodeResourceGroup, reference(resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), '2021-03-01').nodeResourceGroup)]"
+                      "value": "[if(equals(parameters('newOrExisting'), 'new'), reference(resourceId('Microsoft.ContainerService/managedClusters', take(parameters('name'), 80)), '2023-07-02-preview').nodeResourceGroup, reference(resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), '2021-03-01').nodeResourceGroup)]"
                     },
                     "clusterUserObjectId": {
                       "type": "string",
@@ -1796,7 +1800,7 @@
                     },
                     "clusterUrl": {
                       "type": "string",
-                      "value": "[if(equals(parameters('newOrExisting'), 'new'), reference(resourceId('Microsoft.ContainerService/managedClusters', take(parameters('name'), 80)), '2023-02-01').fqdn, reference(resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), '2021-03-01').fqdn)]"
+                      "value": "[if(equals(parameters('newOrExisting'), 'new'), reference(resourceId('Microsoft.ContainerService/managedClusters', take(parameters('name'), 80)), '2023-07-02-preview').fqdn, reference(resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), '2021-03-01').fqdn)]"
                     }
                   }
                 }
@@ -1836,8 +1840,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.20.4.51522",
-                      "templateHash": "10904550076456244554"
+                      "version": "0.23.1.45101",
+                      "templateHash": "3818199185869198436"
                     }
                   },
                   "parameters": {
@@ -2003,8 +2007,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.20.4.51522",
-                      "templateHash": "1702591846921117923"
+                      "version": "0.23.1.45101",
+                      "templateHash": "14663409800054232199"
                     }
                   },
                   "parameters": {
@@ -2160,8 +2164,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.20.4.51522",
-                      "templateHash": "13443589276779078418"
+                      "version": "0.23.1.45101",
+                      "templateHash": "2780874540516264127"
                     }
                   },
                   "parameters": {
@@ -2278,8 +2282,8 @@
                           "metadata": {
                             "_generator": {
                               "name": "bicep",
-                              "version": "0.20.4.51522",
-                              "templateHash": "10285833394103624009"
+                              "version": "0.23.1.45101",
+                              "templateHash": "18115072599946593553"
                             }
                           },
                           "parameters": {
@@ -2367,8 +2371,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.20.4.51522",
-                      "templateHash": "5940136841444431674"
+                      "version": "0.23.1.45101",
+                      "templateHash": "15275162207556182427"
                     }
                   },
                   "parameters": {
@@ -2438,8 +2442,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.20.4.51522",
-                      "templateHash": "17859563125985691252"
+                      "version": "0.23.1.45101",
+                      "templateHash": "13267539991647370785"
                     }
                   },
                   "parameters": {
@@ -2703,7 +2707,7 @@
             }
           },
           "variables": {
-            "$fxv#0": "#!/bin/bash\nset -e\n\necho \"Waiting on Identity RBAC replication ($initialDelay)\"\nsleep $initialDelay\n\n#Retry loop to catch errors (usually RBAC delays)\nretryLoopCount=0\nuntil [ $retryLoopCount -ge $retryMax ]\ndo\n    echo \"Creating AKV Cert $certName with CN $certCommonName (attempt $retryLoopCount)...\"\n\n    if [ -z \"$issuerName\" ] || [ -z \"$issuerProvider\" ]; then\n        policy=$(az keyvault certificate get-default-policy \\\n            | sed -e s/CN=CLIGetDefaultPolicy/CN=${certCommonName}/g )\n    else\n      if [ \"$issuerProvider\" == \"DigiCert\" ] || [ \"$issuerProvider\" == \"GlobalCert\"]; then\n        az keyvault certificate issuer create \\\n          --vault-name $akvName \\\n          --issuer-name $issuerName \\\n          --provider-name $issuerProvider \\\n          --account-id $accountId \\\n          --password $issuerPassword \\\n          --organizatiion-id $organizationId\n      else\n        az keyvault certificate issuer create \\\n          --vault-name $akvName \\\n          --issuer-name $issuerName \\\n          --provider-name $issuerProvider\n      fi\n      policy=$(az keyvault certificate get-default-policy \\\n        | sed -e s/CN=CLIGetDefaultPolicy/CN=${certCommonName}/g \\\n        | sed -e s/\\\"name\\\":\\ \\\"Self\\\"/\\\"name\\\":\\ \\\"${issuerName}\\\"/g \\\n        | sed -e s/\\\"reuseKey\\\":\\ true/\\\"reuseKey\\\":\\ ${reuseKey}/g )\n    fi\n    az keyvault certificate create \\\n        --vault-name $akvName \\\n        -n $certName \\\n        -p \"$policy\" \\\n        && break\n\n    sleep $retrySleep\n    retryLoopCount=$((retryLoopCount+1))\ndone\n\necho \"Getting Certificate $certName\";\nretryLoopCount=0\ncreatedCert=$(az keyvault certificate show -n $certName --vault-name $akvName -o json)\nwhile [ -z \"$(echo $createdCert | jq -r '.x509ThumbprintHex')\" ] && [ $retryLoopCount -lt $retryMax ]\ndo\n    echo \"Waiting for cert creation (attempt $retryLoopCount)...\"\n    sleep $retrySleep\n    createdCert=$(az keyvault certificate show -n $certName --vault-name $akvName -o json)\n    retryLoopCount=$((retryLoopCount+1))\ndone\n\nunversionedSecretId=$(echo $createdCert | jq -r \".sid\" | cut -d'/' -f-5) # remove the version from the url;\njsonOutputString=$(echo $createdCert | jq --arg usid $unversionedSecretId '{name: .name ,certSecretId: {versioned: .sid, unversioned: $usid }, thumbprint: .x509Thumbprint, thumbprintHex: .x509ThumbprintHex}')\necho $jsonOutputString > $AZ_SCRIPTS_OUTPUT_PATH\n",
+            "$fxv#0": "#!/bin/bash\nset -e\n\necho \"Waiting on Identity RBAC replication ($initialDelay)\"\nsleep $initialDelay\n\n#Retry loop to catch errors (usually RBAC delays)\nretryLoopCount=0\nuntil [ $retryLoopCount -ge $retryMax ]\ndo\n    echo \"Creating AKV Cert $certName with CN $certCommonName (attempt $retryLoopCount)...\"\n\n    if [ -z \"$issuerName\" ] || [ -z \"$issuerProvider\" ]; then\n        policy=$(az keyvault certificate get-default-policy \\\n            | sed -e s/CN=CLIGetDefaultPolicy/CN=${certCommonName}/g )\n    else\n      if [ \"$issuerProvider\" == \"DigiCert\" ] || [ \"$issuerProvider\" == \"GlobalCert\"]; then\n        az keyvault certificate issuer create \\\n          --vault-name $akvName \\\n          --issuer-name $issuerName \\\n          --provider-name $issuerProvider \\\n          --account-id $accountId \\\n          --password $issuerPassword \\\n          --organizatiion-id $organizationId\n      else\n        az keyvault certificate issuer create \\\n          --vault-name $akvName \\\n          --issuer-name $issuerName \\\n          --provider-name $issuerProvider\n      fi\n      policy=$(az keyvault certificate get-default-policy \\\n        | sed -e s/CN=CLIGetDefaultPolicy/CN=${certCommonName}/g  \\\n        | sed -e s/\\\"name\\\":\\ \\\"Self\\\"/\\\"name\\\":\\ \\\"${issuerName}\\\"/g )\n    fi\n    az keyvault certificate create \\\n        --vault-name $akvName \\\n        -n $certName \\\n        -p \"$policy\" \\\n        && break\n\n    sleep $retrySleep\n    retryLoopCount=$((retryLoopCount+1))\ndone\n\necho \"Getting Certificate $certName\";\nretryLoopCount=0\ncreatedCert=$(az keyvault certificate show -n $certName --vault-name $akvName -o json)\nwhile [ -z \"$(echo $createdCert | jq -r '.x509ThumbprintHex')\" ] && [ $retryLoopCount -lt $retryMax ]\ndo\n    echo \"Waiting for cert creation (attempt $retryLoopCount)...\"\n    sleep $retrySleep\n    createdCert=$(az keyvault certificate show -n $certName --vault-name $akvName -o json)\n    retryLoopCount=$((retryLoopCount+1))\ndone\n\nunversionedSecretId=$(echo $createdCert | jq -r \".sid\" | cut -d'/' -f-5) # remove the version from the url;\njsonOutputString=$(echo $createdCert | jq --arg usid $unversionedSecretId '{name: .name ,certSecretId: {versioned: .sid, unversioned: $usid }, thumbprint: .x509Thumbprint, thumbprintHex: .x509ThumbprintHex}')\necho $jsonOutputString > $AZ_SCRIPTS_OUTPUT_PATH\n",
             "delegatedManagedIdentityResourceId": "[if(parameters('useExistingManagedIdentity'), extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', parameters('existingManagedIdentitySubId'), parameters('existingManagedIdentityResourceGroupName')), 'Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')))]"
           },
           "resources": [
@@ -2903,8 +2907,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.20.4.51522",
-              "templateHash": "17859563125985691252"
+              "version": "0.23.1.45101",
+              "templateHash": "13267539991647370785"
             }
           },
           "parameters": {
@@ -2974,8 +2978,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.20.4.51522",
-              "templateHash": "11962635656628054684"
+              "version": "0.23.1.45101",
+              "templateHash": "9047896292331789462"
             }
           },
           "parameters": {
@@ -3181,8 +3185,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.20.4.51522",
-              "templateHash": "17859563125985691252"
+              "version": "0.23.1.45101",
+              "templateHash": "13267539991647370785"
             }
           },
           "parameters": {
@@ -3330,8 +3334,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.20.4.51522",
-              "templateHash": "8338693452087215222"
+              "version": "0.23.1.45101",
+              "templateHash": "7371748042862952899"
             }
           },
           "parameters": {
@@ -3742,8 +3746,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.20.4.51522",
-                      "templateHash": "15734646248517807172"
+                      "version": "0.23.1.45101",
+                      "templateHash": "16328815925802307032"
                     }
                   },
                   "parameters": {
@@ -4155,8 +4159,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.20.4.51522",
-                      "templateHash": "4147424268282536128"
+                      "version": "0.23.1.45101",
+                      "templateHash": "16148777195462961697"
                     }
                   },
                   "parameters": {
@@ -4249,8 +4253,8 @@
                           "metadata": {
                             "_generator": {
                               "name": "bicep",
-                              "version": "0.20.4.51522",
-                              "templateHash": "126845826961713133"
+                              "version": "0.23.1.45101",
+                              "templateHash": "2601782961192819435"
                             }
                           },
                           "parameters": {
@@ -4296,8 +4300,8 @@
                           "metadata": {
                             "_generator": {
                               "name": "bicep",
-                              "version": "0.20.4.51522",
-                              "templateHash": "10561926575326750511"
+                              "version": "0.23.1.45101",
+                              "templateHash": "8942889019460563795"
                             }
                           },
                           "parameters": {
@@ -4378,8 +4382,8 @@
                           "metadata": {
                             "_generator": {
                               "name": "bicep",
-                              "version": "0.20.4.51522",
-                              "templateHash": "214279049349519283"
+                              "version": "0.23.1.45101",
+                              "templateHash": "16837936168310674649"
                             }
                           },
                           "parameters": {
@@ -4466,14 +4470,14 @@
                           "metadata": {
                             "_generator": {
                               "name": "bicep",
-                              "version": "0.20.4.51522",
-                              "templateHash": "7518064445977878794"
+                              "version": "0.23.1.45101",
+                              "templateHash": "16275096690493987428"
                             }
                           },
                           "variables": {
-                            "helmChart": "oci://tchordestoragecontainerregistry.azurecr.io/helm/tc-local-pv-provisioner",
-                            "helmName": "tcpvprovisioner",
-                            "helmNamespace": "tc-pv-provisioner",
+                            "helmChart": "oci://REPLACEWITHYOURcontainerregistry.azurecr.io/helm/REPLACEWITHYOURHELMCHART",
+                            "helmName": "helminstalltest",
+                            "helmNamespace": "default",
                             "helmArgs": [
                               "localProvisioner.enabled=true"
                             ],
@@ -4537,8 +4541,8 @@
                           "metadata": {
                             "_generator": {
                               "name": "bicep",
-                              "version": "0.20.4.51522",
-                              "templateHash": "8878124287371755661"
+                              "version": "0.23.1.45101",
+                              "templateHash": "2997791325766562731"
                             }
                           },
                           "parameters": {
@@ -4675,8 +4679,8 @@
                                   "metadata": {
                                     "_generator": {
                                       "name": "bicep",
-                                      "version": "0.20.4.51522",
-                                      "templateHash": "15202707389943465244"
+                                      "version": "0.23.1.45101",
+                                      "templateHash": "16308308918617748578"
                                     }
                                   },
                                   "parameters": {
@@ -5457,8 +5461,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.20.4.51522",
-              "templateHash": "548997878853567947"
+              "version": "0.23.1.45101",
+              "templateHash": "7018053997377161545"
             }
           },
           "parameters": {

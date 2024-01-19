@@ -1,6 +1,6 @@
 metadata name = 'Unreal Cloud DDC'
 metadata description = 'Unreal Cloud DDC for Unreal Engine game development.'
-metadata owner = 'dciborow'
+metadata owner = 'amiedansby'
 
 //  Parameters
 @description('Deployment Location')
@@ -32,7 +32,7 @@ param mainReplicaCount int = enableLocalPVProvisioner ? agentPoolCount - 1 : age
 param agentPoolName string = 'k8agent'
 
 @description('Virtual Machine Skew for Kubernetes')
-param vmSize string = 'Standard_L16s_v2'
+param vmSize string = 'Standard_L16as_v3' // 16 vCPU, 128 GB RAM
 
 @description('Kubernetes version should be supported in all requested regions')
 param kubernetesVersion string = '1.24.9'
@@ -182,10 +182,10 @@ param helmChart string
 param helmVersion string
 
 @description('Name of the Helm release')
-param helmName string = 'myhordetest'
+param helmName string = 'helminstalltest'
 
 @description('Namespace of the Helm release')
-param helmNamespace string = 'horde-tests'
+param helmNamespace string = 'default'
 
 @description('This is prefixed to each location when naming the site for the location')
 param siteNamePrefix string = 'ddc-'
@@ -212,7 +212,7 @@ param keyVaultTags object = {}
 param namespacesToReplicate array = []
 
 @description('If new or existing, this will enable container insights on the AKS cluster. If new, will create one log analytics workspace per location')
-@allowed(['new', 'existing', 'none'])
+@allowed([ 'new', 'existing', 'none' ])
 param newOrExistingWorkspaceForContainerInsights string = 'none'
 
 @description('The name of the log analytics workspace to use for container insights')
@@ -227,7 +227,7 @@ param locationSpecSeperator string = '.'
 var nodeLabels = 'horde-storage'
 
 var useDnsZone = (dnsZoneName != '') && (dnsZoneResourceGroupName != '')
-var fullHostname =  useDnsZone ? '${shortHostname}.${dnsZoneName}' : hostname
+var fullHostname = useDnsZone ? '${shortHostname}.${dnsZoneName}' : hostname
 
 var newOrExisting = {
   new: 'new'
@@ -267,7 +267,7 @@ var enableKubernetes = (newOrExistingKubernetes != 'none')
 var newOrExistingPublicIpEffective = enableKubernetes ? newOrExistingPublicIp : 'none'
 
 //  Resources
-resource partnercenter 'Microsoft.Resources/deployments@2021-04-01' = {
+resource partnercenter 'Microsoft.Resources/deployments@2022-09-01' = {
   name: 'pid-7837dd60-4ba8-419a-a26f-237bbe170773-partnercenter'
   properties: {
     mode: 'Incremental'
@@ -310,7 +310,7 @@ module logAnalytics 'modules/insights/logAnalytics.bicep' = if (enableContainerI
 
 var logAnalyticsWorkspaceResourceId = enableContainerInsights ? logAnalytics.outputs.workspaceId : ''
 
-var allLocations = concat([location], secondaryLocations)
+var allLocations = concat([ location ], secondaryLocations)
 
 var vnetSpecs = [for (location, index) in allLocations: {
   name: '${vnetNamePrefix}${regionCodes[location]}'
@@ -335,7 +335,7 @@ var vmSubnetIds = useVnet ? vnets.outputs.vmSubnetIds : []
 // Compute "source" location indices for replication.
 // Forms a cycle so that a given region replaces from only one other location.
 var lastLocationIndex = length(allLocations) - 1
-var sourceLocationIndices = [for index in range(0, length(allLocations)): (index > 0) ? index-1 : lastLocationIndex]
+var sourceLocationIndices = [for index in range(0, length(allLocations)): (index > 0) ? index - 1 : lastLocationIndex]
 var sourceLocations = [for index in sourceLocationIndices: allLocations[index]]
 
 // Prepare a number of properties for each location
@@ -389,7 +389,7 @@ module allRegionalResources 'modules/resources.bicep' = [for (location, index) i
     dnsZoneResourceGroupName: dnsZoneResourceGroupName
     dnsRecordNameSuffix: shortHostname
     logAnalyticsWorkspaceResourceId: logAnalyticsWorkspaceResourceId
-    }
+  }
 }]
 
 module kvCert 'modules/create-kv-certificate/main.bicep' = [for spec in locationSpecs: if (assignRole && enableCert && enableKubernetes) {
@@ -400,8 +400,8 @@ module kvCert 'modules/create-kv-certificate/main.bicep' = [for spec in location
   params: {
     akvName: spec.keyVaultName
     location: spec.location
-    certificateNames: [certificateName, spec.locationCertName]
-    certificateCommonNames: [fullHostname, spec.fullLocationHostName]
+    certificateNames: [ certificateName, spec.locationCertName ]
+    certificateCommonNames: [ fullHostname, spec.fullLocationHostName ]
     issuerName: certificateIssuer
     issuerProvider: issuerProvider
     useExistingManagedIdentity: useExistingManagedIdentity
@@ -419,11 +419,11 @@ module buildApp 'modules/keyvault/vaults/secrets.bicep' = [for (location, index)
   ]
   params: {
     keyVaultName: locationSpecs[index].keyVaultName
-    secrets: [{ secretName: 'build-app-secret', secretValue: workerServicePrincipalSecret }]
+    secrets: [ { secretName: 'build-app-secret', secretValue: workerServicePrincipalSecret } ]
   }
 }]
 
-module cosmosDB 'modules/documentDB/databaseAccounts.bicep' = if(newOrExistingCosmosDB == 'new') {
+module cosmosDB 'modules/documentDB/databaseAccounts.bicep' = if (newOrExistingCosmosDB == 'new') {
   name: 'cosmosDB-${uniqueString(location, resourceGroup().id, deployment().name)}-key'
   dependsOn: [
     allRegionalResources
@@ -444,7 +444,7 @@ module cassandraKeys 'modules/keyvault/vaults/secrets.bicep' = [for spec in loca
   ]
   params: {
     keyVaultName: spec.keyVaultName
-    secrets: [{ secretName: 'ddc-db-connection-string', secretValue: newOrExistingCosmosDB == 'new' ? cosmosDB.outputs.cassandraConnectionString : cassandraConnectionString }]
+    secrets: [ { secretName: 'ddc-db-connection-string', secretValue: newOrExistingCosmosDB == 'new' ? cosmosDB.outputs.cassandraConnectionString : cassandraConnectionString } ]
   }
 }]
 
@@ -461,6 +461,7 @@ module setuplocations 'modules/ddc-setup-locations.bicep' = if (enableKubernetes
     publicIpNamePrefix: publicIpName
     useVnet: useVnet
     servicePrincipalClientID: servicePrincipalClientID
+    keyVaultName: keyVaultName
     workerServicePrincipalClientID: workerServicePrincipalClientID
     hostname: fullHostname
     certificateName: certificateName
@@ -476,7 +477,7 @@ module setuplocations 'modules/ddc-setup-locations.bicep' = if (enableKubernetes
     siteNamePrefix: siteNamePrefix
     containerImageRepo: containerImageRepo
     containerImageVersion: containerImageVersion
-    useExistingManagedIdentity: enableCert  // If created, Reuse ID from Cert
+    useExistingManagedIdentity: enableCert // If created, Reuse ID from Cert
     managedIdentityPrefix: managedIdentityPrefix
     existingManagedIdentitySubId: existingManagedIdentitySubId
     existingManagedIdentityResourceGroupName: existingManagedIdentityResourceGroupName
@@ -492,7 +493,7 @@ module setuplocations 'modules/ddc-setup-locations.bicep' = if (enableKubernetes
 var trafficManagerFqdn = enableTrafficManager ? trafficManager.outputs.fqdn : ''
 
 // Add CNAME record for traffic manager only after all regional resources are created
-module dnsRecords 'modules/network/dnsZoneCnameRecord.bicep' = if(useDnsZone && enableTrafficManager) {
+module dnsRecords 'modules/network/dnsZoneCnameRecord.bicep' = if (useDnsZone && enableTrafficManager) {
   name: 'dns-${uniqueString(dnsZoneName, resourceGroup().id, deployment().name)}'
   scope: resourceGroup(dnsZoneResourceGroupName)
   dependsOn: enableTrafficManager ? [

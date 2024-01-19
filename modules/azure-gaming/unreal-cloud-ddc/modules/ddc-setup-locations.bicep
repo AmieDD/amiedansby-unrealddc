@@ -137,7 +137,7 @@ module ipRecords './network/privateDnsZoneARecord.bicep' = [for (spec, index) in
   name: 'addIpRecords-${uniqueString(spec.location, resourceGroup().id, deployment().name)}'
   dependsOn: [
     configAKS
-  ] 
+  ]
   params: {
     privateDnsZoneName: privateDnsZoneName
     recordName: spec.regionCode

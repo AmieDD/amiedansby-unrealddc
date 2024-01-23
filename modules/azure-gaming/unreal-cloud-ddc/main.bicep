@@ -35,7 +35,7 @@ param agentPoolName string = 'k8agent'
 param vmSize string = 'Standard_L16as_v3' // 16 vCPU, 128 GB RAM
 
 @description('Kubernetes version should be supported in all requested regions')
-param kubernetesVersion string = '1.24.9'
+param kubernetesVersion string
 
 @description('Whether to create a common vnet for the AKS cluster and related resources. If false, the cluster will create and manage the vnet and subnet internally')
 param useVnet bool = false

@@ -7,7 +7,7 @@ param vmSize string = 'Standard_L16as_v3'
 param nodeLabels string = 'defaultLabel'
 param assignRole bool = false
 param dnsPrefix string = 'k8-${take(uniqueString(name), 5)}'
-param kubernetesVersion string = '1.26.10'
+param kubernetesVersion string
 param availabilityZones array = [
   '1'
   '2'
@@ -25,13 +25,16 @@ param isZoneRedundant bool = false
 @description('Subject for Federated Credential. Ex: system:serviceaccount:ucddc-tests:workload-identity-sa')
 param subject string = ''
 
-param clusterUserName string = 'k8-${take(uniqueString(location, name), 15)}'
+param clusterIdentityName string = 'k8-${take(uniqueString(location, name), 15)}'
 
 @description('Azure Monitor Log Analytics Resource ID. Leave empty to disable container insights')
 param workspaceResourceId string = ''
 
+@description('Id of an existing subnet to use for the cluster. If this is empty, AKS will create and manage the subnet')
+param vnetSubnetId string = ''
+
 resource clusterUser 'Microsoft.ManagedIdentity/userAssignedIdentities@2018-11-30' = if (newOrExisting == 'new') {
-  name: clusterUserName
+  name: clusterIdentityName
   location: location
 }
 
@@ -49,9 +52,23 @@ var addonProfiles = workspaceResourceId == '' ? {
   }
 }
 
-@description('AKS Managed Cluster')
-resource aksCluster 'Microsoft.ContainerService/managedClusters@2023-07-02-preview' = if (newOrExisting == 'new') {
+var agentPoolProfileBase = {
+  name: agentPoolName
+  count: agentPoolCount
+  vmSize: vmSize
+  osType: 'Linux'
+  mode: 'System'
+  nodeLabels: { type: nodeLabels }
+  availabilityZones: isZoneRedundant ? availabilityZones : null
+}
 
+var subnetProperties = vnetSubnetId != '' ? {
+  vnetSubnetID: vnetSubnetId
+} : {}
+
+var agentPoolProfile = union(agentPoolProfileBase, subnetProperties)
+
+resource aksCluster 'Microsoft.ContainerService/managedClusters@2023-02-01' = if (newOrExisting == 'new') {
   name: take(name, 80)
   location: location
   identity: {
@@ -66,15 +83,7 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2023-07-02-previ
     dnsPrefix: dnsPrefix
     enableRBAC: true
     agentPoolProfiles: [
-      {
-        name: agentPoolName
-        count: agentPoolCount
-        vmSize: vmSize
-        osType: 'Linux'
-        mode: 'System'
-        nodeLabels: { type: nodeLabels }
-        availabilityZones: isZoneRedundant ? availabilityZones : null
-      }
+      agentPoolProfile
     ]
     identityProfile: {
       assignedIdentity: {
@@ -95,7 +104,7 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2023-07-02-previ
 resource existingUser 'Microsoft.ManagedIdentity/userAssignedIdentities@2018-11-30' existing = if (newOrExisting == 'existing') { name: 'k8-${take(uniqueString(location, name), 15)}' }
 resource existingAksCluster 'Microsoft.ContainerService/managedClusters@2021-03-01' existing = if (newOrExisting == 'existing') { name: name }
 
-resource federatedId 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2022-01-31-preview' = if (newOrExisting == 'new' && subject != '') {
+resource federatedId 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = if (newOrExisting == 'new' && subject != '') {
   name: 'federated-k8-${take(uniqueString(location, name), 15)}'
   parent: clusterUser
   properties: {
@@ -113,7 +122,7 @@ resource networkContributorRoleDefinition 'Microsoft.Authorization/roleDefinitio
   name: '4d97b98b-1d4f-4787-a291-c67834d212e7'
 }
 
-resource roleAssignment 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = if (assignRole) {
+resource roleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (assignRole) {
   name: guid(resourceGroup().id, clusterUser.id, networkContributorRoleDefinition.id)
   properties: {
     roleDefinitionId: networkContributorRoleDefinition.id

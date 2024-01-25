@@ -9,8 +9,8 @@ param location string
 @description('Secondary Deployment Locations')
 param secondaryLocations array = []
 
-@description('New or Existing Kubernentes Resources')
-@allowed([ 'new', 'existing' ])
+@description('New or Existing Kubernetes Resources, none to skip.')
+@allowed([ 'new', 'existing', 'none' ])
 param newOrExistingKubernetes string = 'new'
 
 @description('Name of Kubernetes Resource')
@@ -19,11 +19,47 @@ param aksName string = 'ddc-storage-${take(uniqueString(resourceGroup().id), 6)}
 @description('Number of Kubernetes Nodes')
 param agentPoolCount int = 3
 
+@description('Whether to use a local ephemeral Persistent Volume provisioner for the cluster')
+param enableLocalPVProvisioner bool = true
+
+// By default, use one less replica than the nodes in the agent pool if local PV provisioning is enabled.
+// This allows for the ephemeral volume controller to work properly while creating an extra pod during updates.
+// TODO: Make use of all agents even with local PV provisioning.
+@description('Number of pod replicas for the main Kubernetes Deployment')
+param mainReplicaCount int = enableLocalPVProvisioner ? agentPoolCount - 1 : agentPoolCount
+
 @description('Name of Kubernetes Agent Pool')
 param agentPoolName string = 'k8agent'
 
 @description('Virtual Machine Skew for Kubernetes')
 param vmSize string = 'Standard_L16as_v3' // 16 vCPU, 128 GB RAM
+
+@description('Kubernetes version should be supported in all requested regions')
+param kubernetesVersion string = '1.24.9'
+
+@description('Whether to create a common vnet for the AKS cluster and related resources. If false, the cluster will create and manage the vnet and subnet internally')
+param useVnet bool = false
+
+@description('Prefix to use for virtual network name, will be appended with the region code.')
+param vnetNamePrefix string = 'vnet-${uniqueString(resourceGroup().id, aksName, location)}-'
+
+@description('Overall address prefix/range for all vnets')
+param vnetOverallAddrPrefix string
+
+@description('Address range for a vnet in a given region')
+param vnetRegionAddrRange int
+
+@description('Subnet address range for use by K8S VMs')
+param vnetVmSubnetAddrRange int
+
+@description('Name of subnet to use for virtual machines')
+param vnetVmSubnetName string = 'vmsubnet'
+
+@description('Name of subnet to use for internal load balancers')
+param vnetLoadBalancerSubnetName string = 'lbsubnet'
+
+@description('Name of private DNS zone if useVnet is true')
+param privateDnsZoneName string
 
 @description('Hostname of Deployment')
 param hostname string = 'deploy1.ddc-storage.gaming.azure.com'
@@ -67,13 +103,13 @@ param storageResourceGroupName string = resourceGroup().name
 param newOrExistingKeyVault string = 'new'
 
 @description('Name of Key Vault resource')
-param keyVaultName string = take('ddcKeyVault${uniqueString(resourceGroup().id, subscription().subscriptionId, location)}', 24)
+param keyVaultName string = take('kv-${uniqueString(resourceGroup().id, subscription().subscriptionId, location)}', 24)
 
 @description('Create new or use existing Public IP resource')
 @allowed([ 'new', 'existing' ])
 param newOrExistingPublicIp string = 'new'
 
-@description('Name of Public IP Resource')
+@description('Name of Public IP Resource, will be suffixed with the location.')
 param publicIpName string = 'ddcPublicIP${uniqueString(resourceGroup().id, subscription().subscriptionId)}'
 
 @description('Create new or use existing Traffic Manager Profile.')
@@ -133,14 +169,17 @@ param cassandraConnectionString string = ''
 @description('Connection Strings of User Provided Storage Accounts')
 param storageConnectionStrings array = []
 
-@description('Version of the image to deploy')
-param imageVersion string = '0.38.1'
+@description('Reference to the container registry repo with the cloud DDC container image')
+param containerImageRepo string
 
-@description('Name of the Helm chart to deploy')
+@description('The cloud DDC container image version to use')
+param containerImageVersion string = '0.39.2'
+
+@description('Reference to the container registry repo with the cloud DDC helm chart')
 param helmChart string
 
 @description('Helm Chart Version')
-param helmVersion string = '0.2.3'
+param helmVersion string
 
 @description('Name of the Helm release')
 param helmName string = 'helminstalltest'
@@ -148,8 +187,8 @@ param helmName string = 'helminstalltest'
 @description('Namespace of the Helm release')
 param helmNamespace string = 'default'
 
-@description('Name of the site')
-param siteName string = 'ddc-${location}'
+@description('This is prefixed to each location when naming the site for the location')
+param siteNamePrefix string = 'ddc-'
 
 @description('Prefix of Managed Identity used during deployment')
 param managedIdentityPrefix string = 'id-ddc-storage-'
@@ -182,6 +221,9 @@ param logAnalyticsWorkspaceName string = 'law-ddc-${uniqueString(resourceGroup()
 @description('The resource group corresponding to an existing logAnalyticsWorkspaceName')
 param existingLogAnalyticsWorkspaceResourceGroupName string = ''
 
+@description('Seperator to use for regional DNS URLs. By default, subdomains will be created for each region.')
+param locationSpecSeperator string = '.'
+
 var nodeLabels = 'horde-storage'
 
 var useDnsZone = (dnsZoneName != '') && (dnsZoneResourceGroupName != '')
@@ -191,6 +233,38 @@ var newOrExisting = {
   new: 'new'
   existing: 'existing'
 }
+
+// When we need a short string for the region.
+// Keys correspond to the "locationMapping" object in ddc-umbrella.bicep
+var regionCodes = {
+  eastus: 'eus'
+  eastus2: 'eus2'
+  westus: 'wus'
+  westus2: 'wus2'
+  westus3: 'wus3'
+  centralus: 'cus'
+  northcentralus: 'ncus'
+  southcentralus: 'scus'
+  northeurope: 'neu'
+  westeurope: 'weu'
+  southeastasia: 'seas'
+  eastasia: 'eas'
+  japaneast: 'jpe'
+  japanwest: 'jpw'
+  australiaeast: 'aue'
+  australiasoutheast: 'ause'
+  brazilsouth: 'brs'
+  canadacentral: 'cnc'
+  canadaeast: 'cne'
+  centralindia: 'cin'
+  southafricanorth: 'san'
+  uaenorth: 'uaen'
+  koreacentral: 'krc'
+  chinanorth3: 'cnn3'
+}
+
+var enableKubernetes = (newOrExistingKubernetes != 'none')
+var newOrExistingPublicIpEffective = enableKubernetes ? newOrExistingPublicIp : 'none'
 
 //  Resources
 resource partnercenter 'Microsoft.Resources/deployments@2022-09-01' = {
@@ -205,7 +279,7 @@ resource partnercenter 'Microsoft.Resources/deployments@2022-09-01' = {
   }
 }
 
-var enableTrafficManager = newOrExistingTrafficManager != 'none'
+var enableTrafficManager = enableKubernetes && (newOrExistingTrafficManager != 'none')
 
 // Traffic Manager Profile
 
@@ -220,7 +294,7 @@ module trafficManager 'modules/network/trafficManagerProfiles.bicep' = if (enabl
 
 var trafficManagerNameForEndpoints = enableTrafficManager ? trafficManager.outputs.name : ''
 
-var enableContainerInsights = (newOrExistingWorkspaceForContainerInsights != 'none')
+var enableContainerInsights = (newOrExistingWorkspaceForContainerInsights != 'none') && enableKubernetes
 
 // Log Analytics Workspace
 
@@ -238,49 +312,77 @@ var logAnalyticsWorkspaceResourceId = enableContainerInsights ? logAnalytics.out
 
 var allLocations = concat([ location ], secondaryLocations)
 
-// Compute "source" locations for replication.
+var vnetSpecs = [for (location, index) in allLocations: {
+  name: '${vnetNamePrefix}${regionCodes[location]}'
+  location: location
+}]
+
+module vnets 'modules/network/vnets.bicep' = if (useVnet) {
+  name: '${vnetNamePrefix}-eachregion'
+  params: {
+    vnetSpecs: vnetSpecs
+    overallAddrPrefix: vnetOverallAddrPrefix
+    regionAddrRange: vnetRegionAddrRange
+    vmSubnetName: vnetVmSubnetName
+    subnetAddrRange: vnetVmSubnetAddrRange
+    loadBalancerSubnetName: vnetLoadBalancerSubnetName
+    privateDnsZoneName: privateDnsZoneName
+  }
+}
+
+var vmSubnetIds = useVnet ? vnets.outputs.vmSubnetIds : []
+
+// Compute "source" location indices for replication.
 // Forms a cycle so that a given region replaces from only one other location.
 var lastLocationIndex = length(allLocations) - 1
-var sourceLocations = [for (location, index) in allLocations: (index > 0) ? allLocations[index - 1] : allLocations[lastLocationIndex]]
+var sourceLocationIndices = [for index in range(0, length(allLocations)): (index > 0) ? index - 1 : lastLocationIndex]
+var sourceLocations = [for index in sourceLocationIndices: allLocations[index]]
 
 // Prepare a number of properties for each location
 var locationSpecs = [for (location, index) in allLocations: {
   location: location
-  sourceLocation: sourceLocations[index]
+  sourceLocationIndex: sourceLocationIndices[index]
   locationCertName: '${certificateName}-${location}'
-  fullLocationHostName: '${location}.${fullHostname}'
-  fullSourceLocationHostName: '${sourceLocations[index]}.${fullHostname}'
+  fullLocationHostName: '${regionCodes[location]}${locationSpecSeperator}${fullHostname}'
+  fullSourceLocationHostName: '${regionCodes[sourceLocations[index]]}${locationSpecSeperator}${fullHostname}'
+  keyVaultName: take('${regionCodes[location]}-${keyVaultName}', 24)
+  regionCode: regionCodes[location]
+  clusterIdentityName: 'id-${aksName}-${location}'
+  vnetName: useVnet ? vnetSpecs[index].name : ''
 }]
 
 module allRegionalResources 'modules/resources.bicep' = [for (location, index) in allLocations: if (epicEULA) {
   name: guid(keyVaultName, publicIpName, cosmosDBName, storageAccountName, location)
-  dependsOn: [
+  dependsOn: enableTrafficManager ? [
     trafficManager
-  ]
+  ] : []
   params: {
     location: location
+    regionCode: regionCodes[location]
     newOrExistingKubernetes: newOrExistingKubernetes
     newOrExistingKeyVault: newOrExistingKeyVault
-    newOrExistingPublicIp: newOrExistingPublicIp
+    newOrExistingPublicIp: newOrExistingPublicIpEffective
     newOrExistingStorageAccount: newOrExistingStorageAccount
+    vmSubnetId: useVnet ? vmSubnetIds[index] : ''
     kubernetesParams: {
-      name: '${aksName}-${take(location, 8)}'
+      name: '${aksName}-${locationSpecs[index].regionCode}'
       agentPoolCount: agentPoolCount
       agentPoolName: agentPoolName
       vmSize: vmSize
-      clusterUserName: 'id-${aksName}-${location}'
+      version: kubernetesVersion
+      clusterIdentityName: locationSpecs[index].clusterIdentityName
       nodeLabels: nodeLabels
     }
-    keyVaultName: take('${location}-${keyVaultName}', 24)
+    keyVaultName: locationSpecs[index].keyVaultName
     keyVaultTags: keyVaultTags
     publicIpName: '${publicIpName}-${location}'
     trafficManagerNameForEndpoints: trafficManagerNameForEndpoints
-    storageAccountName: '${take(location, 8)}${storageAccountName}'
+    storageAccountName: '${locationSpecs[index].regionCode}${storageAccountName}'
     storageResourceGroupName: storageResourceGroupName
     storageSecretName: 'ddc-storage-connection-string'
     assignRole: assignRole
     isZoneRedundant: isZoneRedundant
-    subject: 'system:serviceaccount:horde-tests:workload-identity-sa'
+    subject: 'system:serviceaccount:${helmNamespace}:workload-identity-sa'
     storageAccountSecret: newOrExistingStorageAccount == 'existing' ? storageConnectionStrings[index] : ''
     useDnsZone: useDnsZone
     dnsZoneName: dnsZoneName
@@ -290,13 +392,13 @@ module allRegionalResources 'modules/resources.bicep' = [for (location, index) i
   }
 }]
 
-module kvCert 'br/public:deployment-scripts/create-kv-certificate:3.4.2' = [for spec in locationSpecs: if (assignRole && enableCert) {
+module kvCert 'br/public:deployment-scripts/create-kv-certificate:3.4.2' = [for spec in locationSpecs: if (assignRole && enableCert && enableKubernetes) {
   name: 'akvCert-${spec.location}'
   dependsOn: [
     allRegionalResources
   ]
   params: {
-    akvName: take('${spec.location}-${keyVaultName}', 24)
+    akvName: spec.keyVaultName
     location: spec.location
     certificateNames: [ certificateName, spec.locationCertName ]
     certificateCommonNames: [ fullHostname, spec.fullLocationHostName ]
@@ -306,16 +408,17 @@ module kvCert 'br/public:deployment-scripts/create-kv-certificate:3.4.2' = [for 
     managedIdentityName: '${managedIdentityPrefix}${spec.location}'
     rbacRolesNeededOnKV: '00482a5a-887f-4fb3-b363-3b7fe8e74483' // Key Vault Admin
     isCrossTenant: isApp
+    reuseKey: false
   }
 }]
 
-module buildApp 'modules/keyvault/vaults/secrets.bicep' = [for location in union([ location ], secondaryLocations): if (assignRole && epicEULA && workerServicePrincipalSecret != '') {
+module buildApp 'modules/keyvault/vaults/secrets.bicep' = [for (location, index) in allLocations: if (assignRole && epicEULA && workerServicePrincipalSecret != '') {
   name: 'build-app-${location}-${uniqueString(resourceGroup().id, subscription().subscriptionId)}'
   dependsOn: [
     allRegionalResources
   ]
   params: {
-    keyVaultName: take('${location}-${keyVaultName}', 24)
+    keyVaultName: locationSpecs[index].keyVaultName
     secrets: [ { secretName: 'build-app-secret', secretValue: workerServicePrincipalSecret } ]
   }
 }]
@@ -334,18 +437,18 @@ module cosmosDB 'modules/documentDB/databaseAccounts.bicep' = if (newOrExistingC
   }
 }
 
-module cassandraKeys 'modules/keyvault/vaults/secrets.bicep' = [for location in union([ location ], secondaryLocations): if (assignRole && epicEULA) {
-  name: 'cassandra-keys-${location}-${uniqueString(resourceGroup().id, subscription().subscriptionId)}'
+module cassandraKeys 'modules/keyvault/vaults/secrets.bicep' = [for spec in locationSpecs: if (assignRole && epicEULA) {
+  name: 'cassandra-keys-${spec.location}-${uniqueString(resourceGroup().id, subscription().subscriptionId)}'
   dependsOn: [
     cosmosDB
   ]
   params: {
-    keyVaultName: take('${location}-${keyVaultName}', 24)
+    keyVaultName: spec.keyVaultName
     secrets: [ { secretName: 'ddc-db-connection-string', secretValue: newOrExistingCosmosDB == 'new' ? cosmosDB.outputs.cassandraConnectionString : cassandraConnectionString } ]
   }
 }]
 
-module setuplocations 'modules/ddc-setup-locations.bicep' = if (assignRole && epicEULA) {
+module setuplocations 'modules/ddc-setup-locations.bicep' = if (enableKubernetes && assignRole && epicEULA) {
   name: 'setup-ddc-${location}'
   dependsOn: [
     cassandraKeys
@@ -355,7 +458,8 @@ module setuplocations 'modules/ddc-setup-locations.bicep' = if (assignRole && ep
     aksName: aksName
     locationSpecs: locationSpecs
     resourceGroupName: resourceGroup().name
-    publicIpName: publicIpName
+    publicIpNamePrefix: publicIpName
+    useVnet: useVnet
     servicePrincipalClientID: servicePrincipalClientID
     keyVaultName: keyVaultName
     workerServicePrincipalClientID: workerServicePrincipalClientID
@@ -373,26 +477,37 @@ module setuplocations 'modules/ddc-setup-locations.bicep' = if (assignRole && ep
     siteName: siteName
     imageVersion: imageVersion
     useExistingManagedIdentity: enableCert // If created, Reuse ID from Cert
+    siteNamePrefix: siteNamePrefix
+    containerImageRepo: containerImageRepo
+    containerImageVersion: containerImageVersion
     managedIdentityPrefix: managedIdentityPrefix
     existingManagedIdentitySubId: existingManagedIdentitySubId
     existingManagedIdentityResourceGroupName: existingManagedIdentityResourceGroupName
     isApp: isApp
     namespacesToReplicate: namespacesToReplicate
+    enableLocalPVProvisioner: enableLocalPVProvisioner
+    mainReplicaCount: mainReplicaCount
+    privateDnsZoneName: privateDnsZoneName
+    loadBalancerSubnetName: vnetLoadBalancerSubnetName
   }
 }
 
+var trafficManagerFqdn = enableTrafficManager ? trafficManager.outputs.fqdn : ''
+
 // Add CNAME record for traffic manager only after all regional resources are created
-module dnsRecords 'modules/network/dnsZoneCnameRecord.bicep' = if (useDnsZone) {
+module dnsRecords 'modules/network/dnsZoneCnameRecord.bicep' = if (useDnsZone && enableTrafficManager) {
   name: 'dns-${uniqueString(dnsZoneName, resourceGroup().id, deployment().name)}'
   scope: resourceGroup(dnsZoneResourceGroupName)
-  dependsOn: [
+  dependsOn: enableTrafficManager ? [
     trafficManager
+    allRegionalResources
+  ] : [
     allRegionalResources
   ]
   params: {
     dnsZoneName: dnsZoneName
     recordName: shortHostname
-    targetFQDN: trafficManager.outputs.fqdn
+    targetFQDN: trafficManagerFqdn
   }
 }
 

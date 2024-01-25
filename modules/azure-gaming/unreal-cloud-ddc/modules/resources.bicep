@@ -1,6 +1,9 @@
 @description('Deployment Location')
 param location string
 
+@description('Shorter version of location')
+param regionCode string
+
 @description('Toggle to enable or disable zone redudance.')
 param isZoneRedundant bool = true
 
@@ -21,6 +24,9 @@ param publicIpName string = 'pubip${uniqueString(resourceGroup().id, subscriptio
 @description('Existing traffic manager name to add endpoints to. Leave empty to skip endpoints')
 param trafficManagerNameForEndpoints string = ''
 
+@description('The id of the subnet to use for VMs and Kubernetes, or empty if AKS should manage its own VNet and subnet.')
+param vmSubnetId string
+
 @allowed([ 'new', 'existing', 'none' ])
 param newOrExistingKubernetes string = 'none'
 param kubernetesParams object = {
@@ -29,8 +35,9 @@ param kubernetesParams object = {
   agentPoolName: 'agentpool'
   vmSize: 'Standard_D2_v2'
   assignRole: true
-  clusterUserName: 'k8-${take(uniqueString(location, resourceGroup().id), 15)}'
+  clusterIdentityName: 'k8-${take(uniqueString(location, resourceGroup().id), 15)}'
   nodeLabels: 'defaultLabel'
+  version: '1.24.9'
 }
 param assignRole bool = true
 
@@ -92,17 +99,19 @@ module clusterModule 'ContainerService/managedClusters.bicep' = if (enableKubern
     agentPoolName: contains(kubernetesParams, 'agentPoolName') ? kubernetesParams.agentPoolName : 'agentpool'
     vmSize: contains(kubernetesParams, 'vmSize') ? kubernetesParams.vmSize : 'Standard_D2_v2'
     assignRole: assignRole
+    kubernetesVersion: contains(kubernetesParams, 'version') ? kubernetesParams.version : '1.24.9'
     newOrExisting: newOrExisting[newOrExistingKubernetes]
     isZoneRedundant: isZoneRedundant && !contains(noAvailabilityZones, location)
     subject: subject
-    clusterUserName: kubernetesParams.clusterUserName
+    clusterIdentityName: kubernetesParams.clusterIdentityName
     nodeLabels: kubernetesParams.nodeLabels
     workspaceResourceId: logAnalyticsWorkspaceResourceId
+    vnetSubnetId: vmSubnetId
   }
 }
-var rbacPolicies = [
-  enableKubernetes ? { objectId: clusterModule.outputs.clusterUserObjectId } : {}
-]
+var rbacPolicies = enableKubernetes ? [
+  { objectId: clusterModule.outputs.clusterUserObjectId }
+] : []
 
 module keyVault 'keyvault/vaults.bicep' = if (enableKeyVault) {
   name: 'keyVault-${uniqueString(location, resourceGroup().id, deployment().name)}'
@@ -131,6 +140,7 @@ module publicIp 'network/publicIpAddress.bicep' = if (enablePublicIP) {
   name: 'publicIp-${uniqueString(location, resourceGroup().id, deployment().name)}'
   params: {
     location: location
+    regionCode: regionCode
     name: publicIpName
     newOrExisting: newOrExisting[newOrExistingPublicIp]
     useDnsZone: useDnsZone

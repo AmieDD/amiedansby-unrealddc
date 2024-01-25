@@ -1,4 +1,4 @@
-param aksName string = ''
+param clusterIdentityName string
 param location string
 param resourceGroupName string
 param keyVaultName string
@@ -8,16 +8,29 @@ param servicePrincipalClientID string
 param workerServicePrincipalClientID string = servicePrincipalClientID
 param hostname string = 'deploy1.ddc-storage.gaming.azure.com'
 param locationHostname string
+param useVnet bool
+param loadBalancerSubnetName string
+param internalLoadBalancerIP string
 param replicationSourceHostname string
 param keyVaultTenantID string = subscription().tenantId
 param loginTenantID string = subscription().tenantId
 param helmVersion string = 'latest'
+
+@description('Reference to the container registry repo with the cloud DDC helm chart')
 param helmChart string
 param helmName string
 param helmNamespace string
-param siteName string
-param imageVersion string
+param siteNamePrefix string
+
+@description('Reference to the container registry repo with the cloud DDC container image')
+param containerImageRepo string
+@description('The cloud DDC container image version to use')
+param containerImageVersion string
+
 param enableWorker bool = false
+
+param mainReplicaCount int
+param workerReplicaCount int
 
 @description('this should be enabled in one region - it will delete old ref records no longer in use across the entire system')
 param CleanOldRefRecords bool = false
@@ -33,12 +46,17 @@ param podRollMeSeed string = utcNow()
 @description('If this is non-empty, an open telemetry collector will be set up to send data to Application Insights')
 param appInsightsKey string = ''
 
+@description('This will use an ephemeral volume claim template to make use of local NVMe disk(s)')
+param useLocalPVProvisioner bool = true
+
+@description('Amount of local storage to claim if useLocalPVProvisioner is true')
+param localStorageSize string = '512Gi'
 
 resource clusterUser 'Microsoft.ManagedIdentity/userAssignedIdentities@2018-11-30' existing = {
-  name: 'id-${aksName}-${location}'
+  name: clusterIdentityName
 }
 
-var federatedId = clusterUser.properties.clientId
+var federatedClientId = clusterUser.properties.clientId
 
 var locationMapping = {
   eastus: 'East US'
@@ -67,9 +85,11 @@ var locationMapping = {
   chinanorth3: 'China North 3'
 }
 
+var siteName = '${siteNamePrefix}${location}'
+
 var secretStore = {
   enabled: true
-  clientID: federatedId
+  clientID: federatedClientId
   keyVaultName: keyVaultName
   resourceGroup: resourceGroupName
   subscriptionID: subscription().subscriptionId
@@ -90,7 +110,7 @@ var global = {
   authMethod: 'JWTBearer'
   jwtAuthority: 'https://login.${loginDomain}.com/${loginTenantID}'
   jwtAudience: 'api://${servicePrincipalClientID}'
-  OverrideAppVersion: imageVersion
+  OverrideAppVersion: containerImageVersion
   ServiceCredentials: serviceCreds
 }
 
@@ -122,7 +142,7 @@ var storageConnectionString = 'akv!${keyVaultName}|ddc-storage-connection-string
 // Setting up shared suffixes between main and worker.
 var scyllaValueSuffixes = [for kvp in items(scyllaSpec): '${kvp.key}=${kvp.value}' ]
 
-// Replace $(FEDERATED_ID) later as federatedId is not supported in loops.
+// Replace $(FEDERATED_ID) later as federatedClientId is not supported in loops.
 var sharedEnv = {
   AZURE_CLIENT_ID: '$(FEDERATED_ID)'
   AZURE_TENANT_ID: keyVaultTenantID
@@ -145,11 +165,13 @@ var workerConfigPrefix = '${workerPrefix}.config'
 var replicationPrefix = '${workerConfigPrefix}.Replication'
 var replicationEnabledValue = '${replicationPrefix}.Enabled=true'
 var replicatorPrefix = '${replicationPrefix}.Replicators'
+var replicationProtocol = useVnet ? 'http' : 'https'
+
 var replicatorValueArrays = [for (namespaceToReplicate, index) in namespacesToReplicate: [
-  '${replicatorPrefix}[${index}].ReplicatorName=Replicator${location}'
+  '${replicatorPrefix}[${index}].ReplicatorName=Replicator${location}-${namespaceToReplicate}'
   '${replicatorPrefix}[${index}].Namespace=${namespaceToReplicate}'
   '${replicatorPrefix}[${index}].Version=Refs'
-  '${replicatorPrefix}[${index}].ConnectionString=${replicationSourceHostname}'
+  '${replicatorPrefix}[${index}].ConnectionString=${replicationProtocol}://${replicationSourceHostname}'
 ]]
 
 var workerReplicatorValues = (length(namespacesToReplicate) > 0) ? concat([replicationEnabledValue], flatten(replicatorValueArrays)) : []
@@ -160,6 +182,8 @@ var workerEnvValues = [for suffix in sharedEnvValueSuffixes: '${workerPrefix}.${
 
 var workerOtherValues = [
   '${workerPrefix}.enabled=true'
+  '${workerPrefix}.replicaCount=${workerReplicaCount}'
+  '${workerPrefix}.image.repository=${containerImageRepo}'
   '${workerConfigPrefix}.Azure.ConnectionString=${storageConnectionString}'
   '${workerConfigPrefix}.GC.CleanOldRefRecords=${CleanOldRefRecords}'
   '${workerConfigPrefix}.GC.CleanOldBlobs=${CleanOldBlobs}'
@@ -179,6 +203,7 @@ var globalValues = [
   'global.ServiceCredentials.OAuthClientSecret=${serviceCreds.OAuthClientSecret}'
   'global.ServiceCredentials.OAuthLoginUrl=${serviceCreds.OAuthLoginUrl}'
   'global.ServiceCredentials.OAuthScope=${serviceCreds.OAuthScope}'
+  'global.OverrideAppVersion=${global.OverrideAppVersion}'
 ]
 
 var locationTlsSecretName = '${ingress.tlsSecretName}-${location}'
@@ -226,15 +251,56 @@ var mainEnvValues = [for suffix in mainEnvValueSuffixes: '${mainChartName}.${suf
 var mainConfigPrefix = '${mainChartName}.config'
 var mainScyllaValues = [for suffix in scyllaValueSuffixes: '${mainConfigPrefix}.Scylla.${suffix}' ]
 
+var persistenceSuffixes = [
+	'enabled=false'
+	'size=${localStorageSize}'
+	'volume.ephemeral.volumeClaimTemplate.spec.accessModes[0]=ReadWriteOnce'
+	'volume.ephemeral.volumeClaimTemplate.spec.storageClassName=local-disk'
+	'volume.ephemeral.volumeClaimTemplate.spec.resources.requests.storage=${localStorageSize}'
+]
+
+var mainPersistenceValuesConditional = [for suffix in persistenceSuffixes: '${mainChartName}.persistence.${suffix}']
+
+var mainPersistenceValues = useLocalPVProvisioner ? mainPersistenceValuesConditional : []
+
 var mainOtherValues = [
+  '${mainChartName}.replicaCount=${mainReplicaCount}'
+  '${mainChartName}.image.repository=${containerImageRepo}'
   '${mainConfigPrefix}.Azure.ConnectionString=${storageConnectionString}'
   '${mainConfigPrefix}.GC.CleanOldBlobs=false'
-  '${mainChartName}.serviceAccount.annotations.azure\\.workload\\.identity/client-id=${federatedId}'
+  '${mainChartName}.serviceAccount.annotations.azure\\.workload\\.identity/client-id=${federatedClientId}'
 ]
 
 var mainRestartValues = restartPods ? [ '${mainChartName}.podAnnotations.rollme=${uniqueString(podRollMeSeed)}' ] : []
 
-var mainValues = concat(mainEnvValues, mainScyllaValues, mainOtherValues, mainRestartValues)
+// Add extra service as internal load balancer.
+
+var mainExtraServicePrefix = '${mainChartName}.extraService'
+var mainLBAnnotationsPrefix = '${mainExtraServicePrefix}.annotations.service\\.beta\\.kubernetes\\.io'
+
+var mainVnetValues = useVnet ? [
+  '${mainLBAnnotationsPrefix}/azure-load-balancer-ipv4=${internalLoadBalancerIP}'
+  '${mainLBAnnotationsPrefix}/azure-load-balancer-internal-subnet=${loadBalancerSubnetName}'
+  '${mainExtraServicePrefix}.type=LoadBalancer'
+  '${mainExtraServicePrefix}.portName=http'
+  '${mainExtraServicePrefix}.port=80'
+  '${mainExtraServicePrefix}.targetPort=internal-http'
+] : []
+
+var mainValues = concat(mainEnvValues, mainScyllaValues, mainPersistenceValues, mainOtherValues, mainRestartValues, mainVnetValues)
+
+// The chart template (mistakenly?) uses podLabels on the worker if podLabels are specified on the main workload.
+// We only need workload identity on main, not on the worker.
+var helmStringArgsBase = [
+  '${mainChartName}.podLabels.azure\\.workload\\.identity/use=true'
+  '${workerPrefix}.podLabels.azure\\.workload\\.identity/use=false'
+]
+
+var mainVnetStringArgs = useVnet ? [
+  '${mainLBAnnotationsPrefix}/azure-load-balancer-internal=true'
+] : []
+
+var helmStringArgs = concat(helmStringArgsBase, mainVnetStringArgs)
 
 var ingressAksValues = [
   'ingressAks.enabled=true'
@@ -245,17 +311,20 @@ var ingressAksValues = [
   'ingressAks.hosts[1].tlsSecretName=${locationTlsSecretName}'
 ]
 
+var helmStringValues = '"${join(helmStringArgs, '","')}"'
+
 var otelCollectorValues = useOtel ? ['opentelemetry-collector.config.exporters.azuremonitor.instrumentation_key=${appInsightsKey}'] : []
 
 var helmValuesListCombined = concat(globalValues, secretStoreValues, mainValues, workerValues, ingressAksValues, otelCollectorValues)
 var helmValuesStringWithTemplate = '"${join(helmValuesListCombined, '","')}"'
-var helmValuesString = replace(helmValuesStringWithTemplate, '$(FEDERATED_ID)', federatedId)
+var helmValuesString = replace(helmValuesStringWithTemplate, '$(FEDERATED_ID)', federatedClientId)
 
 var helmCharts = {
   helmChart: helmChart
   helmName: helmName
   helmNamespace: helmNamespace
   helmValues: helmValuesString
+  helmStringValues: helmStringValues
   version: helmVersion
 }
 
